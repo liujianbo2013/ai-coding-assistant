@@ -1,0 +1,54 @@
+# AI Coding Assistant - Default Configuration
+
+ai:
+  model: "tstars2.0"
+  temperature: 0.7
+  max_tokens: 2000
+  timeout: 60
+  api_url: "https://apis.iflow.cn/v1/chat/completions"
+
+analysis:
+  enabled:
+    - complexity
+    - patterns
+    - dependencies
+  exclude:
+    - "*/tests/*"
+    - "*/test_*"
+    - "*/__pycache__/*"
+    - "*/.venv/*"
+    - "*/venv/*"
+    - "*/node_modules/*"
+
+review:
+  check:
+    - security
+    - best_practices
+    - performance
+  severity_threshold: "medium"
+  auto_approve_safe_changes: false
+
+optimization:
+  enabled: true
+  max_suggestions: 5
+  auto_apply_safe_suggestions: false
+
+documentation:
+  format: "markdown"
+  include_examples: true
+  generate_api_docs: true
+  generate_readme: true
+
+github:
+  # These will be overridden by environment variables
+  token: ""
+  repository: ""
+  
+logging:
+  level: "INFO"
+  file: "ai_coding_assistant.log"
+  
+cache:
+  enabled: true
+  ttl: 3600  # 1 hour
+  directory: ".cache"
