@@ -1,0 +1,92 @@
+name: Code Optimization
+
+on:
+  push:
+    branches: [ main, develop ]
+  schedule:
+    - cron: '0 0 * * 0'  # Run weekly on Sunday
+  workflow_dispatch:
+
+jobs:
+  optimize:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+      
+      - name: Cache pip dependencies
+        uses: actions/cache@v3
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      
+      - name: Run Code Optimization Analysis
+        env:
+          IFLOW_API_KEY: ${{ secrets.IFLOW_API_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python src/main.py optimize \
+            --path src \
+            --output optimization-report.json \
+            --max-suggestions 5
+      
+      - name: Upload optimization report
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: optimization-report
+          path: optimization-report.json
+          retention-days: 30
+      
+      - name: Create optimization issue
+        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const fs = require('fs');
+            const report = fs.readFileSync('optimization-report.json', 'utf8');
+            const reportData = JSON.parse(report);
+            
+            if (reportData.suggestions.length > 0) {
+              const body = `## 🚀 Code Optimization Suggestions\n\n` +
+                `Generated on: ${new Date().toISOString()}\n\n` +
+                `### Summary\n` +
+                `- **Total Suggestions**: ${reportData.suggestions.length}\n` +
+                `- **High Priority**: ${reportData.suggestions.filter(s => s.priority === 'high').length}\n` +
+                `- **Medium Priority**: ${reportData.suggestions.filter(s => s.priority === 'medium').length}\n` +
+                `- **Low Priority**: ${reportData.suggestions.filter(s => s.priority === 'low').length}\n\n` +
+                `### Suggestions\n\n`;
+              
+              reportData.suggestions.forEach((suggestion, index) => {
+                body += `#### ${index + 1}. ${suggestion.title}\n\n`;
+                body += `**Priority**: ${suggestion.priority}\n\n`;
+                body += `**File**: \`${suggestion.file}\`\n\n`;
+                body += `**Description**: ${suggestion.description}\n\n`;
+                body += `**Current Code**:\n\`\`\`\n${suggestion.current_code}\n\`\`\`\n\n`;
+                body += `**Suggested Code**:\n\`\`\`\n${suggestion.suggested_code}\n\`\`\`\n\n`;
+                body += `**Expected Impact**: ${suggestion.impact}\n\n---\n\n`;
+              });
+              
+              github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title: `🚀 Code Optimization Report - ${new Date().toLocaleDateString()}`,
+                body: body,
+                labels: ['optimization', 'ai-generated']
+              });
+            }

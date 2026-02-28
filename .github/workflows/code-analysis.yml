@@ -1,0 +1,73 @@
+name: Code Analysis
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+      
+      - name: Cache pip dependencies
+        uses: actions/cache@v3
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      
+      - name: Run AI Code Analyzer
+        env:
+          IFLOW_API_KEY: ${{ secrets.IFLOW_API_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python src/main.py analyze --path . --output analysis-report.json
+      
+      - name: Upload analysis results
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: analysis-report
+          path: analysis-report.json
+          retention-days: 30
+      
+      - name: Comment PR with analysis
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const fs = require('fs');
+            const report = fs.readFileSync('analysis-report.json', 'utf8');
+            const reportData = JSON.parse(report);
+            
+            const body = `## 🔍 Code Analysis Report\n\n` +
+              `### Summary\n` +
+              `- **Files Analyzed**: ${reportData.files_analyzed}\n` +
+              `- **Issues Found**: ${reportData.issues_found}\n` +
+              `- **Complexity Score**: ${reportData.complexity_score}\n\n` +
+              `### Details\n\`\`\`json\n${JSON.stringify(reportData.details, null, 2)}\n\`\`\``;
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: body
+            });

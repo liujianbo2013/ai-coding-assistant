@@ -1,0 +1,90 @@
+name: Code Review
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [ main, develop ]
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+      
+      - name: Cache pip dependencies
+        uses: actions/cache@v3
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      
+      - name: Fetch PR diff
+        run: |
+          git fetch origin ${{ github.event.pull_request.base.ref }}
+          git diff origin/${{ github.event.pull_request.base.ref }}...HEAD > pr_diff.txt
+      
+      - name: Run AI Code Review
+        env:
+          IFLOW_API_KEY: ${{ secrets.IFLOW_API_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+        run: |
+          python src/main.py review \
+            --diff pr_diff.txt \
+            --pr-number $PR_NUMBER \
+            --output review-results.json
+      
+      - name: Post review comments
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const fs = require('fs');
+            const results = fs.readFileSync('review-results.json', 'utf8');
+            const reviewData = JSON.parse(results);
+            
+            // Create review comment
+            for (const comment of reviewData.comments) {
+              if (comment.path && comment.line) {
+                await github.rest.pulls.createReviewComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  pull_number: context.issue.number,
+                  body: comment.body,
+                  commit_id: context.sha,
+                  path: comment.path,
+                  line: comment.line
+                });
+              }
+            }
+            
+            // Create summary comment
+            const summaryBody = `## 🤖 AI Code Review\n\n` +
+              `### Overall Assessment\n\n` +
+              `**Score**: ${reviewData.overall_score}/10\n\n` +
+              `### Summary\n${reviewData.summary}\n\n` +
+              `### Issues Found: ${reviewData.issues.length}\n\n` +
+              `### Suggestions: ${reviewData.suggestions.length}\n`;
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: summaryBody
+            });
