@@ -459,4 +459,3 @@ response = requests.post(api_url, json=payload, headers=headers, timeout=60)
 
 **文档版本**: 1.0.0  
 **创建日期**: 2026-02-28  
-**维护者**: AI Coding Assistant Team
